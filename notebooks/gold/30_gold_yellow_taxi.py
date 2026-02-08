@@ -2,6 +2,7 @@
 from pyspark.sql import functions as F
 
 # COMMAND ----------
+
 # Widgets
 
 dbutils.widgets.text("dataset_name", "nyc_taxi_yellow")
@@ -24,11 +25,17 @@ dbutils.widgets.dropdown("merge_mode", "append", ["append", "merge"])
 dbutils.widgets.text("partition_cols", "pickup_date")
 
 # COMMAND ----------
-# Utilities
 
-# MAGIC %run ../00_config_and_utils
+# MAGIC %run /Users/sshanmugam@zirous.com/databricks-medallion/notebooks/00_config_and_utils
 
 # COMMAND ----------
+
+# Utilities
+
+# %run ../00_config_and_utils
+
+# COMMAND ----------
+
 # Parameters
 
 dataset_name = dbutils.widgets.get("dataset_name")
@@ -41,6 +48,7 @@ gold_table_prefix = dbutils.widgets.get("gold_table_prefix")
 partition_cols = parse_csv_list(dbutils.widgets.get("partition_cols"))
 
 # COMMAND ----------
+
 # Read Silver
 
 qualified_silver_table = qualify_table(catalog, schema, silver_table)
@@ -52,6 +60,7 @@ else:
     silver_df = spark.read.format("delta").load(silver_input_path)
 
 # COMMAND ----------
+
 # Daily trip metrics
 
 has_dropoff = "tpep_dropoff_datetime" in silver_df.columns
@@ -77,6 +86,7 @@ if trip_duration_expr is not None:
 daily_trip_metrics = silver_df.groupBy("pickup_date").agg(*agg_exprs)
 
 # COMMAND ----------
+
 # Hourly trip metrics
 
 hourly_trip_metrics = silver_df.groupBy("pickup_date", "pickup_hour").agg(
@@ -85,6 +95,7 @@ hourly_trip_metrics = silver_df.groupBy("pickup_date", "pickup_hour").agg(
 )
 
 # COMMAND ----------
+
 # Write Gold
 
 qualified_daily_table = qualify_table(
@@ -132,7 +143,13 @@ else:
     )
 
 # COMMAND ----------
+
 # Diagnostics
 
 print(f"Daily trip metrics row count: {daily_trip_metrics.count()}")
 print(f"Hourly trip metrics row count: {hourly_trip_metrics.count()}")
+
+# COMMAND ----------
+
+# MAGIC %sql
+# MAGIC select * from gold_nyc_taxi_yellow_daily_trip_metrics

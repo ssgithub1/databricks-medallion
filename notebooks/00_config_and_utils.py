@@ -37,13 +37,25 @@ def gold_path(base_path: str, dataset_name: str) -> str:
     return f"{base_path.rstrip('/')}/gold/{dataset_name}"
 
 
-def add_ingest_metadata(df: DataFrame) -> DataFrame:
-    """Add ingest metadata columns to a DataFrame."""
-    return (
-        df.withColumn("_ingest_ts", F.current_timestamp())
-        .withColumn("_source_file", F.input_file_name())
-        .withColumn("_batch_id", F.expr("uuid()"))
-    )
+
+
+from pyspark.sql import functions as F
+
+def add_ingest_metadata(df, source_file: str | None = None):
+    df2 = df.withColumn("_ingest_ts", F.current_timestamp()).withColumn("_batch_id", F.expr("uuid()"))
+
+    # Prefer UC metadata column if present
+    if "_metadata" in df2.columns:
+        return df2.withColumn("_source_file", F.col("_metadata.file_path"))
+
+    # Fall back to provided source_file (useful for per-file reads)
+    if source_file:
+        return df2.withColumn("_source_file", F.lit(source_file))
+
+    # Final fallback: null
+    return df2.withColumn("_source_file", F.lit(None).cast("string"))
+
+
 
 
 def require_non_null(df: DataFrame, cols: list[str]) -> None:

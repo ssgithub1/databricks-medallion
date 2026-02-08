@@ -1,7 +1,18 @@
 # Databricks notebook source
+# MAGIC %run ../00_config_and_utils
+
+
+# COMMAND ----------
+
+print("add_ingest_metadata exists?", "add_ingest_metadata" in globals())
+
+
+# COMMAND ----------
+
 from pyspark.sql import functions as F
 
 # COMMAND ----------
+
 # Widgets
 
 dbutils.widgets.text("dataset_name", "nyc_taxi_yellow")
@@ -24,6 +35,7 @@ dbutils.widgets.dropdown("merge_mode", "append", ["append", "merge"])
 dbutils.widgets.text("partition_cols", "pickup_date")
 
 # COMMAND ----------
+
 # Parameters
 
 dataset_name = dbutils.widgets.get("dataset_name")
@@ -38,23 +50,100 @@ event_time_column = dbutils.widgets.get("event_time_column")
 partition_cols = dbutils.widgets.get("partition_cols")
 
 # COMMAND ----------
+
+# MAGIC %run /Users/sshanmugam@zirous.com/databricks-medallion/notebooks/00_config_and_utils
+
+# COMMAND ----------
+
 # Utilities
 
-# MAGIC %run ../00_config_and_utils
+# %run ../00_config_and_utils
 
 # COMMAND ----------
-# Read source
 
-if not source_path:
-    raise ValueError("source_path widget must be provided.")
+print("add_ingest_metadata exists?", "add_ingest_metadata" in globals())
 
-reader = spark.read.format(source_format)
-if source_format == "csv":
-    reader = reader.option("header", True).option("inferSchema", True)
-
-raw_df = reader.load(source_path)
 
 # COMMAND ----------
+
+from pyspark.sql import functions as F
+
+files = [f.path for f in dbutils.fs.ls(source_path) if f.path.endswith(".parquet")]
+print("Found files:", len(files))
+for f in files:
+    print(" -", f)
+
+dfs = []
+for fpath in files:
+    df_i = spark.read.parquet(fpath)
+
+    # Standardize column names early
+    df_i = df_i.select([F.col(c).alias(c.lower().strip()) for c in df_i.columns])
+
+    dfs.append(df_i)
+
+# Union with missing columns allowed
+raw_df = dfs[0]
+for d in dfs[1:]:
+    raw_df = raw_df.unionByName(d, allowMissingColumns=True)
+
+print("Combined columns:", len(raw_df.columns))
+
+
+# COMMAND ----------
+
+from pyspark.sql import functions as F
+
+files = [f.path for f in dbutils.fs.ls(source_path) if f.path.endswith(".parquet")]
+print("Found files:", len(files))
+
+dfs = []
+for fpath in files:
+    df_i = spark.read.parquet(fpath)
+
+    # Standardize columns early
+    df_i = df_i.select([F.col(c).alias(c.lower().strip()) for c in df_i.columns])
+
+    # Add per-file metadata BEFORE union (because _metadata won't survive union reliably)
+    df_i = (
+        df_i
+        .withColumn("_ingest_ts", F.current_timestamp())
+        .withColumn("_source_file", F.lit(fpath))
+        .withColumn("_batch_id", F.expr("uuid()"))
+    )
+
+    # Optional: cast known "money" columns to double to avoid schema drift
+    money_like = [
+        "fare_amount", "extra", "mta_tax", "tip_amount", "tolls_amount",
+        "improvement_surcharge", "total_amount", "congestion_surcharge", "airport_fee"
+    ]
+    for c in money_like:
+        if c in df_i.columns:
+            df_i = df_i.withColumn(c, F.col(c).cast("double"))
+
+    dfs.append(df_i)
+
+raw_df = dfs[0]
+for d in dfs[1:]:
+    raw_df = raw_df.unionByName(d, allowMissingColumns=True)
+
+bronze_df = raw_df  # already has ingest metadata
+
+
+# COMMAND ----------
+
+money_like = [
+    "fare_amount", "extra", "mta_tax", "tip_amount", "tolls_amount",
+    "improvement_surcharge", "total_amount", "congestion_surcharge", "airport_fee"
+]
+
+for c in money_like:
+    if c in raw_df.columns:
+        raw_df = raw_df.withColumn(c, F.col(c).cast("double"))
+
+
+# COMMAND ----------
+
 # Standardize columns
 
 standardized_df = raw_df.select(
@@ -64,6 +153,7 @@ standardized_df = raw_df.select(
 bronze_df = add_ingest_metadata(standardized_df)
 
 # COMMAND ----------
+
 # Write Bronze
 
 qualified_bronze_table = qualify_table(catalog, schema, bronze_table)
@@ -79,6 +169,7 @@ write_delta(
 )
 
 # COMMAND ----------
+
 # Diagnostics
 
 row_count = bronze_df.count()
@@ -90,3 +181,8 @@ if event_time_column in bronze_df.columns:
         F.max(F.col(event_time_column)).alias("max_event_time"),
     ).collect()[0]
     print(f"Event time range: {stats['min_event_time']} - {stats['max_event_time']}")
+
+# COMMAND ----------
+
+# MAGIC %sql
+# MAGIC select * from bronze_nyc_taxi_yellow

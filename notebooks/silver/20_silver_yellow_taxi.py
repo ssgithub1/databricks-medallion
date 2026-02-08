@@ -3,6 +3,7 @@ from pyspark.sql import functions as F
 from pyspark.sql import types as T
 
 # COMMAND ----------
+
 # Widgets
 
 dbutils.widgets.text("dataset_name", "nyc_taxi_yellow")
@@ -25,11 +26,17 @@ dbutils.widgets.dropdown("merge_mode", "append", ["append", "merge"])
 dbutils.widgets.text("partition_cols", "pickup_date")
 
 # COMMAND ----------
-# Utilities
 
-# MAGIC %run ../00_config_and_utils
+# MAGIC %run /Users/sshanmugam@zirous.com/databricks-medallion/notebooks/00_config_and_utils
 
 # COMMAND ----------
+
+# # Utilities
+
+# %run ../00_config_and_utils
+
+# COMMAND ----------
+
 # Parameters
 
 dataset_name = dbutils.widgets.get("dataset_name")
@@ -46,6 +53,7 @@ merge_mode = dbutils.widgets.get("merge_mode")
 partition_cols = parse_csv_list(dbutils.widgets.get("partition_cols"))
 
 # COMMAND ----------
+
 # Read Bronze
 
 qualified_bronze_table = qualify_table(catalog, schema, bronze_table)
@@ -57,6 +65,7 @@ else:
     bronze_df = spark.read.format("delta").load(bronze_input_path)
 
 # COMMAND ----------
+
 # Schema enforcement for common Yellow Taxi fields
 
 # NOTE: Field availability can differ by year; adjust as needed.
@@ -95,6 +104,7 @@ other_cols = [c for c in bronze_df.columns if c not in {f.name for f in yellow_t
 silver_df = bronze_df.select(*cast_exprs, *[F.col(c) for c in other_cols])
 
 # COMMAND ----------
+
 # Cast and clean
 
 if event_time_column in silver_df.columns:
@@ -114,6 +124,7 @@ for measure in ["trip_distance", "fare_amount", "total_amount"]:
         )
 
 # COMMAND ----------
+
 # Derived columns
 
 if event_time_column in silver_df.columns:
@@ -121,16 +132,19 @@ if event_time_column in silver_df.columns:
     silver_df = silver_df.withColumn("pickup_hour", F.hour(F.col(event_time_column)))
 
 # COMMAND ----------
+
 # Dedupe
 
 silver_df = dedupe_latest(silver_df, primary_keys, dedupe_order_column)
 
 # COMMAND ----------
+
 # Data quality
 
 require_non_null(silver_df, primary_keys)
 
 # COMMAND ----------
+
 # Write Silver
 
 qualified_silver_table = qualify_table(catalog, schema, silver_table)
@@ -170,6 +184,7 @@ else:
     )
 
 # COMMAND ----------
+
 # Diagnostics
 
 row_count = silver_df.count()
@@ -183,3 +198,8 @@ if event_time_column in silver_df.columns:
     ).collect()[0]
     print(f"Event time range: {stats['min_event_time']} - {stats['max_event_time']}")
     print(f"Distinct pickup_date: {stats['distinct_pickup_dates']}")
+
+# COMMAND ----------
+
+# MAGIC %sql
+# MAGIC select * from silver_nyc_taxi_yellow
