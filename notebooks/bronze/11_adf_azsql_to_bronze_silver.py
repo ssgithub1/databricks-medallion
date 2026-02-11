@@ -13,7 +13,7 @@ from pyspark.sql import functions as F
 # COMMAND ----------
 
 # ---- Config: Secret scope name (configure once per workspace/environment) ----
-SECRET_SCOPE = "kv-databricks-secrets"
+SECRET_SCOPE = "db-secret-scope"
 
 # ---- Runtime widgets ----
 dbutils.widgets.text("p_schema", "dbo")
@@ -104,10 +104,10 @@ print(f"- Silver target     : {silver_table_fqn}")
 
 # ---- Read Azure SQL connection secrets ----
 try:
-    azsql_server = dbutils.secrets.get(SECRET_SCOPE, "azsql_server")
-    azsql_db = dbutils.secrets.get(SECRET_SCOPE, "azsql_db")
-    azsql_user = dbutils.secrets.get(SECRET_SCOPE, "azsql_user")
-    azsql_password = dbutils.secrets.get(SECRET_SCOPE, "azsql_password")
+    azsql_server = dbutils.secrets.get(SECRET_SCOPE, "azsql-server")
+    azsql_db = dbutils.secrets.get(SECRET_SCOPE, "azsql-db")
+    azsql_user = dbutils.secrets.get(SECRET_SCOPE, "azsql-user")
+    azsql_password = dbutils.secrets.get(SECRET_SCOPE, "azsql-password")
 except Exception as exc:
     raise RuntimeError(
         "Failed to resolve Azure SQL secrets from scope "
